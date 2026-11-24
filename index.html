@@ -78,6 +78,17 @@
   }
   .muted { color: #64748b; font-size: 0.85rem; }
 
+  /* ---------- Storage notice (shown only when the browser won't save) ---------- */
+  .storage-notice {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    color: #92400e;
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 12px 16px 0;
+    font-size: 0.9rem;
+  }
+
   /* ---------- KPI cards (dashboard) ---------- */
   .kpi-grid {
     display: grid;
@@ -191,6 +202,11 @@
   <button data-tab="aging">Aging Report</button>
   <button data-tab="import">Import / Export</button>
 </nav>
+
+<!-- Shown only when this browser won't let the app save (e.g. some in-app viewers). -->
+<div id="storage-notice" class="storage-notice" style="display:none;">
+  Heads up: this browser isn't letting AP Workbench save your changes, so anything you add will only last until you close this view. Open this file in Safari to save between visits.
+</div>
 
 <main>
   <!-- ================= DASHBOARD ================= -->
@@ -505,14 +521,38 @@ function loadData() {
   resetToSampleData(false); // false = don't re-render yet (app is still starting)
 }
 
-// Save the current data to localStorage.
+// Does this browser actually let us save? Some in-app viewers and
+// private modes block localStorage, and a failed save used to kill
+// the whole page. We test once at startup and remember the answer.
+var storageOK = true;
+function checkStorage() {
+  try {
+    localStorage.setItem(STORAGE_KEY + '-test', '1');
+    localStorage.removeItem(STORAGE_KEY + '-test');
+    storageOK = true;
+  } catch (e) {
+    storageOK = false;
+  }
+  var notice = document.getElementById('storage-notice');
+  if (notice) { notice.style.display = storageOK ? 'none' : 'block'; }
+}
+
+// Save the current data to localStorage. Never throws: if the browser
+// blocks saving, the app keeps working in memory for this session.
 function saveData() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
-    vendors: vendors,
-    invoices: invoices,
-    nextVendorNum: nextVendorNum,
-    nextInvoiceNum: nextInvoiceNum
-  }));
+  if (!storageOK) { return; }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      vendors: vendors,
+      invoices: invoices,
+      nextVendorNum: nextVendorNum,
+      nextInvoiceNum: nextInvoiceNum
+    }));
+  } catch (e) {
+    storageOK = false;
+    var notice = document.getElementById('storage-notice');
+    if (notice) { notice.style.display = 'block'; }
+  }
 }
 
 // Restore the original fictional sample data.
@@ -1116,6 +1156,7 @@ document.getElementById('reset-btn').addEventListener('click', function () {
 });
 
 /* ---------- 6. START THE APP ---------- */
+checkStorage();
 loadData();
 renderAll();
 </script>
