@@ -306,6 +306,7 @@
           <button type="button" class="btn-secondary" id="inv-cancel-edit" style="display:none;">Cancel Edit</button>
         </div>
       </form>
+      <p class="muted">Duplicate check: before saving, the app warns you if an invoice with the same vendor, invoice number, and amount already exists.</p>
     </div>
 
     <div class="card">
@@ -642,6 +643,25 @@ function agingBucket(inv) {
   return '90+';
 }
 var AGING_BUCKETS = ['Current', '1-30', '31-60', '61-90', '90+'];
+
+// Duplicate check: an invoice is a possible duplicate when another invoice
+// has the same vendor, the same invoice number (ignoring case and spaces),
+// and the same amount (to the cent). `excludeId` skips one invoice, so
+// editing an invoice never flags itself as its own duplicate.
+function findDuplicate(vendorId, invoiceNo, amount, excludeId) {
+  var no = String(invoiceNo).trim().toLowerCase();
+  var cents = Math.round(amount * 100);
+  for (var i = 0; i < invoices.length; i++) {
+    var inv = invoices[i];
+    if (excludeId && inv.id === excludeId) { continue; }
+    if (inv.vendorId === vendorId &&
+        String(inv.invoiceNo).trim().toLowerCase() === no &&
+        Math.round(inv.amount * 100) === cents) {
+      return inv;
+    }
+  }
+  return null;
+}
 var AGING_LABELS = {
   'Current': 'Current (not yet due)',
   '1-30': '1–30 days past due',
@@ -880,6 +900,17 @@ document.getElementById('invoice-form').addEventListener('submit', function (e) 
   if (!data.invoiceNo || !data.date || !data.dueDate || isNaN(data.amount) || data.amount <= 0) {
     alert('Please fill in the invoice number, dates, and a valid amount greater than zero.');
     return;
+  }
+  // Duplicate check: warn before saving a possible double entry.
+  var dup = findDuplicate(data.vendorId, data.invoiceNo, data.amount, editingId || null);
+  if (dup) {
+    var ok = confirm(
+      'Possible duplicate invoice:\n\n' +
+      vendorName(dup.vendorId) + ' — ' + dup.invoiceNo + ' — ' + money(dup.amount) +
+      ' (due ' + dup.dueDate + ', status ' + displayStatus(dup) + ').\n\n' +
+      'Save this invoice anyway?'
+    );
+    if (!ok) { return; }
   }
   if (editingId) {
     // Update the existing invoice, keeping its approval status.
