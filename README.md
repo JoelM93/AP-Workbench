@@ -18,7 +18,8 @@ Data is saved in the browser's `localStorage`, so edits survive page reloads. A 
 
 ## Features (v2)
 
-8. **Duplicate-invoice check** — before saving an invoice, the app warns you if another invoice already has the same vendor, invoice number, and amount (invoice numbers are matched ignoring case and spaces, amounts to the cent). You can save it anyway or cancel. Editing an invoice never flags itself as its own duplicate.
+8. **Duplicate-invoice check** — before saving an invoice, a popup warns you if another invoice already has the same vendor and invoice number. When the amount matches too, the popup says "This is a duplicate invoice"; when only the number matches, it says the number already exists and shows the different amount. Buttons: Save Anyway or Cancel (Cancel leaves the form filled in so you can fix it). Invoice numbers are matched ignoring case and spaces, amounts to the cent. Editing an invoice never flags itself as its own duplicate.
+9. **Invoice search** — a search box on the Invoices tab filters the list as you type, matching invoice number, vendor name, or approver (case-insensitive). It works together with the status filter and the "due in next 7 days" checkbox.
 
 ## How to run
 
@@ -47,7 +48,7 @@ The code is organized for a beginner to read and extend:
 - AI-powered invoice data extraction (e.g. from a photo or PDF)
 - Workflow automation (approval routing, payment reminders)
 - More advanced reporting and analytics (spend by vendor/category over time, payment history)
-- Search across invoices and vendors
+- Search across vendors
 - Multi-currency support
 - User accounts / cloud sync (would require a backend — out of scope for the single-file version)
 
