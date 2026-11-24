@@ -16,6 +16,10 @@ A personal Accounts Payable management web application, built to practice real-w
 
 Data is saved in the browser's `localStorage`, so edits survive page reloads. A **Reset Sample Data** button on the Import / Export tab restores the original fictional data set (14 invoices, 6 vendors).
 
+## Features (v2)
+
+8. **Duplicate-invoice check** — before saving an invoice, the app warns you if another invoice already has the same vendor, invoice number, and amount (invoice numbers are matched ignoring case and spaces, amounts to the cent). You can save it anyway or cancel. Editing an invoice never flags itself as its own duplicate.
+
 ## How to run
 
 No build step, no server, no installation.
@@ -39,7 +43,7 @@ The code is organized for a beginner to read and extend:
 
 ## Roadmap (v2 and beyond)
 
-- Automated invoice processing and duplicate detection
+- Automated invoice processing
 - AI-powered invoice data extraction (e.g. from a photo or PDF)
 - Workflow automation (approval routing, payment reminders)
 - More advanced reporting and analytics (spend by vendor/category over time, payment history)
@@ -49,4 +53,4 @@ The code is organized for a beginner to read and extend:
 
 ## License
 
-Personal project. Fictional data only.
+MIT License — see [LICENSE](LICENSE). Personal project. Fictional data only.
