@@ -136,6 +136,7 @@
   /* ---------- Simple CSS bar chart ---------- */
   .bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
   .bar-row .bar-label { width: 110px; flex: 0 0 110px; font-size: 0.85rem; }
+  .bar-row .bar-label.wide { width: 150px; flex: 0 0 150px; }
   .bar-track { flex: 1; background: #e2e8f0; border-radius: 6px; height: 18px; overflow: hidden; }
   .bar-fill { height: 100%; border-radius: 6px; background: #0f2a4a; }
   .bar-fill.green { background: #16a34a; }
@@ -266,6 +267,12 @@
       <h2>Payables by Aging Bucket</h2>
       <p class="muted">Unpaid invoices grouped by how far past (or before) their due date they are.</p>
       <div id="aging-chart"></div>
+    </div>
+
+    <div class="card">
+      <h2>Spend by Vendor</h2>
+      <p class="muted">Total invoiced per vendor, all invoices, highest first. (The Vendors tab shows what is still unpaid per vendor.)</p>
+      <div id="spend-chart"></div>
     </div>
 
     <div class="card">
@@ -543,14 +550,28 @@ var nextVendorNum = 7;
 var nextInvoiceNum = 15;
 
 // Load data from localStorage, or fall back to the sample data.
+// Saved data is validated: it must be arrays of usable rows, and counters
+// must be real numbers. Anything else is treated as corrupt and the
+// sample data is loaded instead — a bad save can never blank the app.
 function loadData() {
   try {
     var saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (saved && saved.vendors && saved.invoices) {
-      vendors = saved.vendors;
-      invoices = saved.invoices;
-      nextVendorNum = saved.nextVendorNum || 7;
-      nextInvoiceNum = saved.nextInvoiceNum || 15;
+    if (saved && Array.isArray(saved.vendors) && Array.isArray(saved.invoices)) {
+      vendors = saved.vendors.filter(function (v) {
+        return v && typeof v.id === 'string' && typeof v.name === 'string';
+      });
+      invoices = saved.invoices.filter(function (inv) {
+        return inv && typeof inv.id === 'string' && typeof inv.vendorId === 'string' &&
+          typeof inv.invoiceNo === 'string';
+      }).map(function (inv) {
+        // Repair a bad row instead of letting it poison every total.
+        inv.amount = (typeof inv.amount === 'number' && isFinite(inv.amount)) ? inv.amount : 0;
+        if (['Pending', 'Scheduled', 'Paid'].indexOf(inv.status) < 0) { inv.status = 'Pending'; }
+        if (['Pending', 'Approved', 'Rejected'].indexOf(inv.approval) < 0) { inv.approval = 'Pending'; }
+        return inv;
+      });
+      nextVendorNum = (typeof saved.nextVendorNum === 'number' && isFinite(saved.nextVendorNum)) ? saved.nextVendorNum : 7;
+      nextInvoiceNum = (typeof saved.nextInvoiceNum === 'number' && isFinite(saved.nextInvoiceNum)) ? saved.nextInvoiceNum : 15;
       return;
     }
   } catch (e) {
@@ -606,9 +627,12 @@ function resetToSampleData(rerender) {
 
 /* ---------- 2. HELPERS ---------- */
 
-// Format a number as US dollars, e.g. 1240.5 -> "$1,240.50"
+// Format a number as US dollars, e.g. 1240.5 -> "$1,240.50".
+// A bad value (NaN, Infinity, text) shows as $0.00 instead of breaking a total.
 function money(n) {
-  return '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var v = Number(n);
+  if (!isFinite(v)) { v = 0; }
+  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // Parse a "YYYY-MM-DD" date string into a Date at local midnight.
@@ -617,6 +641,12 @@ function money(n) {
 function parseDate(s) {
   var parts = String(s).split('-');
   return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+}
+
+// True only for a real "YYYY-MM-DD" date (used to reject garbage dates
+// from CSV imports, which fall back to today instead).
+function isDateStr(s) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(s)) && !isNaN(parseDate(s).getTime());
 }
 
 // Today at midnight, for clean day-to-day comparisons.
@@ -725,20 +755,18 @@ var AGING_COLORS = { 'Current': 'blue', '1-30': 'amber', '31-60': 'amber', '61-9
 
 /* ---------- 3. RENDER FUNCTIONS ---------- */
 
-// Redraw every tab.
+// Redraw every tab. Each section runs in its own try/catch, so one broken
+// section can never blank the whole app.
 function renderAll() {
-  renderDashboard();
-  renderInvoiceFormVendors();
-  renderInvoices();
-  renderVendors();
-  renderAging();
+  [renderDashboard, renderInvoiceFormVendors, renderInvoices, renderVendors, renderAging]
+    .forEach(function (fn) { try { fn(); } catch (e) { /* keep the other tabs working */ } });
 }
 
 // Build one horizontal bar row for the simple CSS charts.
-function barRow(label, value, max, colorClass) {
+function barRow(label, value, max, colorClass, labelClass) {
   var pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return '<div class="bar-row">' +
-    '<div class="bar-label">' + esc(label) + '</div>' +
+    '<div class="bar-label' + (labelClass ? ' ' + labelClass : '') + '">' + esc(label) + '</div>' +
     '<div class="bar-track"><div class="bar-fill ' + colorClass + '" style="width:' + pct + '%"></div></div>' +
     '<div class="bar-value">' + money(value) + '</div></div>';
 }
@@ -782,6 +810,21 @@ function renderDashboard() {
   document.getElementById('aging-chart').innerHTML = AGING_BUCKETS.map(function (b) {
     return barRow(AGING_LABELS[b], bucketTotals[b], bucketMax, AGING_COLORS[b]);
   }).join('');
+
+  // Spend by vendor: total invoiced per vendor (paid + unpaid), highest first.
+  // Invoices pointing at a vendor that no longer exists are skipped.
+  var spendTotals = {};
+  vendors.forEach(function (v) { spendTotals[v.id] = 0; });
+  invoices.forEach(function (inv) {
+    if (spendTotals[inv.vendorId] != null) { spendTotals[inv.vendorId] += (isFinite(inv.amount) ? inv.amount : 0); }
+  });
+  var spend = vendors.map(function (v) { return { name: v.name, total: spendTotals[v.id] || 0 }; })
+    .filter(function (s) { return s.total > 0; })
+    .sort(function (a, b) { return b.total - a.total; });
+  var spendMax = spend.length ? spend[0].total : 0;
+  document.getElementById('spend-chart').innerHTML = spend.length === 0
+    ? '<p class="muted">No invoices yet.</p>'
+    : spend.map(function (s) { return barRow(s.name, s.total, spendMax, '', 'wide'); }).join('');
 
   // Due-soon table: unpaid, due within 7 days, soonest first.
   dueWeek.sort(function (a, b) { return a.dueDate < b.dueDate ? -1 : 1; });
@@ -932,8 +975,15 @@ function renderAging() {
 
 /* ---------- 4. EVENT HANDLERS ---------- */
 
+// Attach a listener only if the element exists. A missing element used to
+// crash the whole script at startup and blank the app; now it is skipped.
+function on(id, event, fn) {
+  var el = document.getElementById(id);
+  if (el) { el.addEventListener(event, fn); }
+}
+
 // Tab switching: show the clicked tab, hide the others.
-document.getElementById('main-nav').addEventListener('click', function (e) {
+on('main-nav', 'click', function (e) {
   var btn = e.target.closest('button[data-tab]');
   if (!btn) { return; }
   document.querySelectorAll('#main-nav button').forEach(function (b) { b.classList.remove('active'); });
@@ -989,22 +1039,20 @@ function showDuplicateModal(existing, exact, data, editingId) {
 // Popup buttons: Save Anyway finishes the save, Cancel leaves the form
 // untouched so the user can fix the entry. Guarded: if the popup ever
 // goes missing from the page, the app must keep working without it.
-var dupSaveBtn = document.getElementById('dup-save-anyway');
-if (dupSaveBtn) { dupSaveBtn.addEventListener('click', function () {
+on('dup-save-anyway', 'click', function () {
   document.getElementById('dup-modal').style.display = 'none';
   if (pendingInvoice) { commitInvoice(pendingInvoice, pendingEditingId); }
   pendingInvoice = null;
   pendingEditingId = null;
-}); }
-var dupCancelBtn = document.getElementById('dup-cancel');
-if (dupCancelBtn) { dupCancelBtn.addEventListener('click', function () {
+});
+on('dup-cancel', 'click', function () {
   document.getElementById('dup-modal').style.display = 'none';
   pendingInvoice = null;
   pendingEditingId = null;
-}); }
+});
 
 // --- Invoice form: add a new invoice, or save edits to an existing one ---
-document.getElementById('invoice-form').addEventListener('submit', function (e) {
+on('invoice-form', 'submit', function (e) {
   e.preventDefault(); // stop the browser from reloading the page
   var editingId = document.getElementById('inv-editing-id').value;
   var data = {
@@ -1029,7 +1077,7 @@ document.getElementById('invoice-form').addEventListener('submit', function (e) 
 });
 
 // Cancel an in-progress invoice edit.
-document.getElementById('inv-cancel-edit').addEventListener('click', function () {
+on('inv-cancel-edit', 'click', function () {
   document.getElementById('invoice-form').reset();
   document.getElementById('inv-editing-id').value = '';
   document.getElementById('invoice-form-title').textContent = 'Add Invoice';
@@ -1038,7 +1086,7 @@ document.getElementById('inv-cancel-edit').addEventListener('click', function ()
 
 // Invoice table buttons: Edit / Delete / Approve / Reject (event delegation —
 // one listener on the table body handles clicks on any row's buttons).
-document.getElementById('invoice-body').addEventListener('click', function (e) {
+on('invoice-body', 'click', function (e) {
   var btn = e.target.closest('button');
   if (!btn) { return; }
   var id;
@@ -1078,12 +1126,12 @@ document.getElementById('invoice-body').addEventListener('click', function (e) {
 });
 
 // Re-render the invoice table when the filters change.
-document.getElementById('status-filter').addEventListener('change', renderInvoices);
-document.getElementById('due-soon-only').addEventListener('change', renderInvoices);
-document.getElementById('invoice-search').addEventListener('input', renderInvoices);
+on('status-filter', 'change', renderInvoices);
+on('due-soon-only', 'change', renderInvoices);
+on('invoice-search', 'input', renderInvoices);
 
 // --- Vendor form: add or edit a vendor ---
-document.getElementById('vendor-form').addEventListener('submit', function (e) {
+on('vendor-form', 'submit', function (e) {
   e.preventDefault();
   var editingId = document.getElementById('ven-editing-id').value;
   var data = {
@@ -1109,7 +1157,7 @@ document.getElementById('vendor-form').addEventListener('submit', function (e) {
   e.target.reset();
 });
 
-document.getElementById('ven-cancel-edit').addEventListener('click', function () {
+on('ven-cancel-edit', 'click', function () {
   document.getElementById('vendor-form').reset();
   document.getElementById('ven-editing-id').value = '';
   document.getElementById('vendor-form-title').textContent = 'Add Vendor';
@@ -1117,7 +1165,7 @@ document.getElementById('ven-cancel-edit').addEventListener('click', function ()
 });
 
 // Vendor table buttons: Edit / Delete.
-document.getElementById('vendor-body').addEventListener('click', function (e) {
+on('vendor-body', 'click', function (e) {
   var btn = e.target.closest('button');
   if (!btn) { return; }
   if (btn.hasAttribute('data-edit-vendor')) {
@@ -1160,7 +1208,7 @@ function csvCell(value) {
 
 // Export: build a CSV string from all invoices and trigger a download
 // using a Blob URL (works offline, no server needed).
-document.getElementById('export-btn').addEventListener('click', function () {
+on('export-btn', 'click', function () {
   var header = ['Vendor', 'Invoice Number', 'Invoice Date', 'Due Date', 'Amount', 'Status', 'Approval', 'Approver'];
   var lines = [header.join(',')];
   invoices.forEach(function (inv) {
@@ -1225,15 +1273,17 @@ function findOrCreateVendor(name) {
   return id;
 }
 
-document.getElementById('import-file').addEventListener('change', function (e) {
+on('import-file', 'change', function (e) {
   var file = e.target.files[0];
   var resultEl = document.getElementById('import-result');
   if (!file) { return; }
   var reader = new FileReader();
   reader.onload = function () {
+   try {
     var rows = parseCsv(String(reader.result));
     if (rows.length < 2) {
       resultEl.textContent = 'Could not import: the file has no data rows.';
+      e.target.value = ''; // allow choosing the same file again
       return;
     }
     // Map columns by header name so column order does not matter.
@@ -1256,12 +1306,16 @@ document.getElementById('import-file').addEventListener('change', function (e) {
       if (['Pending', 'Scheduled', 'Paid'].indexOf(status) < 0) { status = 'Pending'; }
       var approval = col(row, ['approval']).trim();
       if (['Pending', 'Approved', 'Rejected'].indexOf(approval) < 0) { approval = 'Pending'; }
+      // Dates must be real YYYY-MM-DD dates; anything else falls back to today.
+      var today = new Date().toISOString().slice(0, 10);
+      var dateStr = col(row, ['invoice date', 'date']).trim();
+      var dueStr = col(row, ['due date']).trim();
       invoices.push({
         id: 'i' + (nextInvoiceNum++),
         vendorId: findOrCreateVendor(col(row, ['vendor'])),
         invoiceNo: invoiceNo,
-        date: col(row, ['invoice date', 'date']).trim() || new Date().toISOString().slice(0, 10),
-        dueDate: col(row, ['due date']).trim() || new Date().toISOString().slice(0, 10),
+        date: isDateStr(dateStr) ? dateStr : today,
+        dueDate: isDateStr(dueStr) ? dueStr : today,
         amount: amount,
         status: status,
         approval: approval,
@@ -1274,12 +1328,20 @@ document.getElementById('import-file').addEventListener('change', function (e) {
     resultEl.textContent = 'Import complete: ' + imported + ' invoice(s) added' +
       (skipped > 0 ? ', ' + skipped + ' row(s) skipped (missing invoice number or invalid amount).' : '.');
     e.target.value = ''; // allow importing the same file again later
+   } catch (err) {
+    resultEl.textContent = 'Import failed: the file could not be processed. Check that it is a CSV in the format this app exports.';
+    e.target.value = '';
+   }
+  };
+  reader.onerror = function () {
+    resultEl.textContent = 'Could not read that file. Try choosing it again.';
+    e.target.value = '';
   };
   reader.readAsText(file);
 });
 
 // Reset sample data (with confirmation — this wipes all edits).
-document.getElementById('reset-btn').addEventListener('click', function () {
+on('reset-btn', 'click', function () {
   if (confirm('Reset all data back to the original fictional sample data? Your edits will be lost.')) {
     resetToSampleData(true);
     document.getElementById('import-result').textContent = '';
@@ -1288,9 +1350,19 @@ document.getElementById('reset-btn').addEventListener('click', function () {
 });
 
 /* ---------- 6. START THE APP ---------- */
-checkStorage();
-loadData();
-renderAll();
+// Startup is guarded: if anything goes wrong, the user sees a message
+// instead of a blank page, and saved data is never wiped by the failure.
+try {
+  checkStorage();
+  loadData();
+  renderAll();
+} catch (e) {
+  var notice = document.getElementById('storage-notice');
+  if (notice) {
+    notice.textContent = 'Something went wrong loading AP Workbench. Your saved data was not changed. Try refreshing the page.';
+    notice.style.display = 'block';
+  }
+}
 </script>
 </body>
 </html>

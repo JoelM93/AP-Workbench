@@ -20,6 +20,7 @@ Data is saved in the browser's `localStorage`, so edits survive page reloads. A 
 
 8. **Duplicate-invoice check** — before saving an invoice, a popup warns you if another invoice already has the same vendor and invoice number. When the amount matches too, the popup says "This is a duplicate invoice"; when only the number matches, it says the number already exists and shows the different amount. Buttons: Save Anyway or Cancel (Cancel leaves the form filled in so you can fix it). Invoice numbers are matched ignoring case and spaces, amounts to the cent. Editing an invoice never flags itself as its own duplicate.
 9. **Invoice search** — a search box on the Invoices tab filters the list as you type, matching invoice number, vendor name, or approver (case-insensitive). It works together with the status filter and the "due in next 7 days" checkbox.
+10. **Spend by Vendor** — a bar chart on the Dashboard showing total invoiced per vendor (paid + unpaid), highest first. (The Vendors tab shows what is still unpaid per vendor.)
 
 ## How to run
 
@@ -47,10 +48,20 @@ The code is organized for a beginner to read and extend:
 - Automated invoice processing
 - AI-powered invoice data extraction (e.g. from a photo or PDF)
 - Workflow automation (approval routing, payment reminders)
-- More advanced reporting and analytics (spend by vendor/category over time, payment history)
+- More advanced reporting and analytics (spend by category over time, payment history)
 - Search across vendors
 - Multi-currency support
 - User accounts / cloud sync (would require a backend — out of scope for the single-file version)
+
+## Reliability
+
+The app is written so one failure can never blank the whole page:
+
+- **Missing page pieces are skipped, not fatal.** Buttons and popups are only wired up if they exist on the page.
+- **Each dashboard tab renders on its own.** If one section hits a problem, the others still draw.
+- **Bad saved data falls back to the samples.** Corrupt or wrongly shaped data in the browser's storage loads the original sample data instead of crashing.
+- **Bad numbers show as $0.00.** A broken amount or total never turns into NaN on screen.
+- **CSV imports validate what they read.** Bad dates fall back to today, bad amounts are skipped and counted, and a file that cannot be read reports an error instead of failing silently.
 
 ## License
 
