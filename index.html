@@ -476,6 +476,19 @@
 
 <footer>AP Workbench v1 &mdash; fictional sample data only. Built with HTML, CSS &amp; JavaScript.</footer>
 
+<!-- Duplicate warning popup: shown by the app itself, so it appears in any browser.
+     It must sit BEFORE the script below, so the code can find it when the page loads. -->
+<div id="dup-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-card">
+    <h2 id="dup-modal-title">This is a duplicate invoice</h2>
+    <p id="dup-modal-text"></p>
+    <div class="toolbar">
+      <button type="button" class="btn-primary" id="dup-save-anyway">Save Anyway</button>
+      <button type="button" class="btn-secondary" id="dup-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ============================================================
    AP WORKBENCH v1 — JavaScript
@@ -974,18 +987,21 @@ function showDuplicateModal(existing, exact, data, editingId) {
 }
 
 // Popup buttons: Save Anyway finishes the save, Cancel leaves the form
-// untouched so the user can fix the entry.
-document.getElementById('dup-save-anyway').addEventListener('click', function () {
+// untouched so the user can fix the entry. Guarded: if the popup ever
+// goes missing from the page, the app must keep working without it.
+var dupSaveBtn = document.getElementById('dup-save-anyway');
+if (dupSaveBtn) { dupSaveBtn.addEventListener('click', function () {
   document.getElementById('dup-modal').style.display = 'none';
   if (pendingInvoice) { commitInvoice(pendingInvoice, pendingEditingId); }
   pendingInvoice = null;
   pendingEditingId = null;
-});
-document.getElementById('dup-cancel').addEventListener('click', function () {
+}); }
+var dupCancelBtn = document.getElementById('dup-cancel');
+if (dupCancelBtn) { dupCancelBtn.addEventListener('click', function () {
   document.getElementById('dup-modal').style.display = 'none';
   pendingInvoice = null;
   pendingEditingId = null;
-});
+}); }
 
 // --- Invoice form: add a new invoice, or save edits to an existing one ---
 document.getElementById('invoice-form').addEventListener('submit', function (e) {
@@ -1276,17 +1292,5 @@ checkStorage();
 loadData();
 renderAll();
 </script>
-
-<!-- Duplicate warning popup: shown by the app itself, so it appears in any browser. -->
-<div id="dup-modal" class="modal-overlay" style="display:none;">
-  <div class="modal-card">
-    <h2 id="dup-modal-title">This is a duplicate invoice</h2>
-    <p id="dup-modal-text"></p>
-    <div class="toolbar">
-      <button type="button" class="btn-primary" id="dup-save-anyway">Save Anyway</button>
-      <button type="button" class="btn-secondary" id="dup-cancel">Cancel</button>
-    </div>
-  </div>
-</div>
 </body>
 </html>
